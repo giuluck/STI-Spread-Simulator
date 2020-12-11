@@ -1,17 +1,19 @@
 globals [
-  ;; PARAMETER VARIABLES
-  relationship-probability
-  waiting-probability
+  ;; DISEASE VARIABLES
   screening-probability
+  initial-infected-percentage
+
+  ;; SIMULATION VARIABLES
+  warmup-time
+  simulation-time
+  breakup-probability
+  single-probability
+  casual-sex-probability
 
   ;; MODEL VARIABLES
-  ; population variables
-  male-probability
-  ; potential partners variables
-  average-degree
+  male-percentage
+  average-semidegree
   rewiring-probability
-  ; disease variables
-  initial-infected-percentage
 
   ;; VISUALIZATION VARIABLES
   ; gender visualization variables
@@ -35,43 +37,47 @@ globals [
 ]
 
 turtles-own [
-  sexual-status ; "Single", "Seeking Casual", "Seeking Stable", "Casual" or "Stable"
-  spring-x
-  spring-y
+  core?     ; whether or not the individual is in the core group
+  status    ; sexual status ("Single", "Seek Casual", "Seek Stable", "Casual" or "Stable")
+  spring-x  ; useful for the spring layout
+  spring-y  ; useful for the spring layout
 ]
 
 links-own [
-  potential     ; "none" if the link is not present in the potential partners network otherwise the corresponding color
-  past          ; "none" if the link is not present in the past partners network otherwise the corresponding color
-  current       ; "none" if the link is not present in the current partners network otherwise the corresponding color
+  potential ; "none" if the link is not present in the potential partners network otherwise the corresponding color
+  past      ; "none" if the link is not present in the past partners network otherwise the corresponding color
+  current   ; "none" if the link is not present in the current partners network otherwise the corresponding color
 ]
 
 to setup
-  clear-all
-  set-globals
-  setup-population
-  create-potential-partners-network
-  repeat 700 [ simulate-day ] ; initial warm-up to form couples
-  ask n-of (initial-infected-percentage * population-size) turtles [ set color infected-color ]
-  display-network
-  reset-ticks
+  clear-all                                                                                     ;
+  set-globals                                                                                   ; assign values to global variables
+  initialize-population                                                                         ; initialize turtles and link properties and remove same-sex links from potential partners network
+  create-potential-partners-network                                                             ; create small-world and scale-free potential partners networks (Klemm-Egquìlez model)
+  repeat warmup-time [ simulate ]                                                               ; warm-up the simulation to form couples (2-years)
+  ask n-of (initial-infected-percentage * population-size) turtles [ set color infected-color ] ; infect a certain percentage of turtles
+  display-network                                                                               ; show the selected network
+  reset-ticks                                                                                   ;
 end
 
 to go
-  simulate-day
-  display-network
-  tick
+  if ticks < simulation-time [ simulate ]                                                       ; it simulates only a given number of days
+  display-network                                                                               ; but it always correctly displays the network
+  tick                                                                                          ;
 end
 
 ;; SETUP FUNCTIONS
 to set-globals
-  set relationship-probability 1 / average-relationship-length       ; probability for a couple to slipt up
-  set waiting-probability 1 / average-waiting-time                   ; probability for a single individual to be seeking a new relationship
-  set screening-probability 1 / (365 * average-screening-time)       ; probability for an indivudual to be tested spontaneously
-  set male-probability 0.5                                           ; probability for a node to be male
-  set average-degree 24                                              ; average number of acquaintancies including both sexes
-  set rewiring-probability 0.33                                      ; probability to have a friend outside the spatial neighborhood
+  set screening-probability 1 / (52 * average-screening-time)        ; probability for an indivudual to be tested spontaneously
   set initial-infected-percentage 0.06                               ; initial infected population is 6%
+  set warmup-time 100                                                ; number of days used to form relationships (around two years)
+  set simulation-time 520                                            ; number of simulated days (around ten years)
+  set breakup-probability 1 / 60                                     ; probability for a couple to slipt up
+  set single-probability 1 / 30                                      ; probability for a single individual to be seeking a new relationship
+  set casual-sex-probability 0.25                                    ; probability of seeking casual sex
+  set male-percentage 0.5                                            ; probability for a node to be male
+  set average-semidegree 15                                          ; half of the average number of potentials links including both sexes
+  set rewiring-probability 0.25                                      ; probability to have a friend outside the spatial neighborhood
   set male-shape "circle"                                            ; circle turtles  (male)
   set female-shape "square"                                          ; square turtles  (female)
   set susceptible-color 9                                            ; white turtles   (susceptible)
@@ -87,129 +93,137 @@ to set-globals
   set zero-degree-factor 5                                           ; used to display zero-degree nodes
 end
 
-to setup-population
-  create-turtles population-size [ set shape female-shape set color susceptible-color set sexual-status "Single" ] ; turtles initialized as females
-  ask n-of (male-probability * population-size) turtles [ set shape male-shape ] ; half of the population set to male shape
+to initialize-population
+  create-turtles population-size [                                                           ;
+    set shape female-shape                                                                   ; turtles are initialized to be female, susceptible, single and outside the core group
+    set color susceptible-color                                                              ;
+    set status "Single"                                                                      ;
+    set core? false                                                                          ;
+  ]                                                                                          ;
+  ask n-of (male-percentage * population-size) turtles [ set shape male-shape ]              ; a given percentage of the population set to male shape
+  ask n-of (core-group-percentage * population-size) turtles [                               ;
+    set core? true                                                                           ; a given percentage of the population is part of the core group
+    set shape word shape " 2"                                                                ; and their shape is changed accordingly
+  ]                                                                                          ;
 end
 
 to create-potential-partners-network
-  ; to form the inital ring lattice, every turtle creates half of the expected links with turtles on their right
-  ; as links are undirected, eventually they will get the other half of the links by turtles on their left
-  ask turtles [
-    let id who
-    create-links-with other turtles with [ (population-size + id - who) mod population-size <= average-degree / 2 ] [ set potential potential-color set past "none" set current "none" ]
-  ]
-  ; then, some links are rewired according to the Watts-Strogatz model, namely each link can be rewired according to the rewiring-probability
-  ; when a link is chosen for rewiring, one of its extremities is maintained while the other one is changed (if the chosen extremity is not already fully connected)
-  ask links [
-    if (random-float 1) < rewiring-probability [
-      let extremity end1
-      if [ count link-neighbors ] of extremity < (count turtles - 1) [
-        let new-extremity one-of turtles with [ (self != extremity) and (not link-neighbor? extremity) ]
-        ask extremity [ create-link-with new-extremity [ set potential potential-color set past "none" set current "none" ] ]
-        die
-      ]
-    ]
-  ]
-  ; finally, same-sex links are removed
-  ask links [ if [shape] of end1 = [shape] of end2 [ die ] ]
+  ask turtles [                                                                              ; to form the inital ring lattice
+    let id who                                                                               ; every turtle creates half of the expected links with turtles on their right
+    create-links-with other turtles with [                                                   ; as links are undirected, eventually they will get the other half of the links by turtles on their left
+      (population-size + id - who) mod population-size <= average-semidegree                 ;
+    ]                                                                                        ;
+  ]                                                                                          ;
+  ask links [                                                                                ; then, some links are rewired according to the Watts-Strogatz model
+    if (random-float 1) < rewiring-probability [                                             ; namely each link can be rewired according to the rewiring-probability
+      let extremity end1                                                                     ; when a link is chosen for rewiring
+      if [ count link-neighbors ] of extremity < (count turtles - 1) [                       ; if the chosen extremity is not already fully connected
+        ask one-of turtles with [ (self != extremity) and (not link-neighbor? extremity) ] [ ; one of its extremities is connected to a new one
+          create-link-with extremity                                                         ;
+        ]                                                                                    ;
+        die                                                                                  ; and the previous link is removed
+      ]                                                                                      ;
+    ]                                                                                        ;
+  ]                                                                                          ;
+  ask links [                                                                                ;
+    set potential potential-color                                                            ;
+    set past "none"                                                                          ; links are initialized to be potential only, so there are no past or current partners
+    set current "none"                                                                       ;
+    if [shape] of end1 = [shape] of end2 [ die ]                                             ; and finally, same sex links are removed
+  ]                                                                                          ;
 end
 
-;; DISPLAY FUNCTIONS
+;; GO FUNCTIONS
+to simulate
+  breakup-relationships                                                                                                                      ; breaking up the relationships
+  update-status                                                                                                                              ; updating sexual statuses of the individuals
+  form-pairs                                                                                                                                 ; forming new relationships
+end
+
 to display-network
-  ; at each iteration, just the links of the chosen graph are shown
-  ask links [ set hidden? true ]
-  if partners-network = "Potential" [ ask links with [ potential != "none" ] [ set hidden? false set color potential ] ]
-  if partners-network = "Past" [ ask links with [ past != "none" ] [ set hidden? false set color past ] ]
-  if partners-network = "Current" [ ask links with [ current != "none" ] [ set hidden? false set color current ] ]
-
-  ; whenever the graph layout is changed, the according modality is used
-  if prev-layout != layout [
-    set prev-layout layout
-    if layout = "Circle" [ layout-circle (sort turtles) max-pxcor - node-size ]
-    if layout = "Random" [ ask turtles [ setxy random-xcor random-ycor ] ]
-    if layout = "Spring" [ ask turtles [ setxy spring-x spring-y ] ]
-  ]
-  ; also, if spring layout is being used, at each tick the turtles are moved accordingly
-  ; and the coordinates are maintained in order to be restored when swapping from circle to spring
-  if layout = "Spring" [
-    layout-spring turtles links with [ hidden? = false ] 1 300 / spring-factor 150 / spring-factor
-    ask turtles [ set spring-x xcor set spring-y ycor ]
-  ]
-
-  ; turtle sizes are chosen according to the switch
-  if-else proportional-sizes? [
-    let mean-degree mean [ count my-links with [ hidden? = false ] ] of turtles
-    ask turtles [ set size node-size * (count my-links with [ hidden? = false ] + zero-degree-factor) / (mean-degree + zero-degree-factor) ]
-  ] [
-    ask turtles [ set size node-size ]
-  ]
+  ask links [ set hidden? true ]                                                                                                             ; at each iteration, just the links of the chosen graph are shown
+  if partners-network = "Potential" [ ask links with [ potential != "none" ] [ set hidden? false set color potential ] ]                     ;
+  if partners-network = "Past" [ ask links with [ past != "none" ] [ set hidden? false set color past ] ]                                    ;
+  if partners-network = "Current" [ ask links with [ current != "none" ] [ set hidden? false set color current ] ]                           ;
+  if prev-layout != layout [                                                                                                                 ; whenever the graph layout is changed
+    set prev-layout layout                                                                                                                   ; the according modality is used
+    if layout = "Circle" [ layout-circle (sort turtles) max-pxcor - node-size ]                                                              ;
+    if layout = "Random" [ ask turtles [ setxy random-xcor random-ycor ] ]                                                                   ;
+    if layout = "Spring" [ ask turtles [ setxy spring-x spring-y ] ]                                                                         ;
+  ]                                                                                                                                          ;
+  if layout = "Spring" [                                                                                                                     ; also, if spring layout is being used
+    layout-spring turtles links with [ hidden? = false ] 1 300 / spring-factor 150 / spring-factor                                           ; at each tick the turtles are moved accordingly
+    ask turtles [ set spring-x xcor set spring-y ycor ]                                                                                      ; and the coordinates are maintained in order to be
+  ]                                                                                                                                          ; restored when swapping from another modality to spring
+  if-else proportional-sizes? [                                                                                                              ;
+    let mean-degree mean [ count my-links with [ hidden? = false ] ] of turtles                                                              ; finally. turtle sizes are chosen according to the switch
+    ask turtles [ set size node-size * (count my-links with [ hidden? = false ] + zero-degree-factor) / (mean-degree + zero-degree-factor) ] ;
+  ] [                                                                                                                                        ;
+    ask turtles [ set size node-size ]                                                                                                       ;
+  ]                                                                                                                                          ;
 end
 
-;; SIMULATION FUNCTIONS
-to simulate-day
-  breakup-relationships
-  update-sexual-status
-  form-pairs
-end
-
+; RELATIONSHIP FUNCTIONS
 to breakup-relationships
-  ; breakup all the casual relationship and some of the stable relationships depending on probability
-  ask links with [ current != "none" ] [
-    if current = casual-color or random-float 1 < relationship-probability [
-      ask both-ends [ set sexual-status "Single" ] ; individuals are single again
-      set current "none"
-    ]
-  ]
+  ask links with [ current != "none" ] [                                                    ; for all the currently active relationships
+    if current = casual-color or random-float 1 < breakup-probability [                     ; if the relationship is causal or if it is stable but it breaks up
+      ask both-ends [ set status "Single" ]                                                 ; individuals are made single again
+      set current "none"                                                                    ; and the relationship is removed
+    ]                                                                                       ;
+  ]                                                                                         ;
 end
 
-to update-sexual-status
-  ; updates sexual status for each single turtle
-  ask turtles with [ sexual-status = "Single" ] [
-    ; if the turtles decides not to wait anymore can choose between seeking a casual or a stable relationship
-    if random-float 1 < waiting-probability [
-      if-else random-float 1 < casual-sex-probability [ set sexual-status "Seeking Casual" ] [ set sexual-status "Seeking Stable" ]
-    ]
-  ]
+to update-status
+  ask turtles with [ status = "Single" ] [                                                  ; for each single turtle
+    if random-float 1 < single-probability [                                                ; if it decides not to wait anymore
+      if-else core? or random-float 1 < casual-sex-probability [                            ; set status either to
+        set status "Seek Casual"                                                            ; "Seek Casual"
+      ] [                                                                                   ; or
+        set status "Seek Stable"                                                            ; "Seek Stable"
+      ]                                                                                     ; according to the given probability
+    ]                                                                                       ;
+  ]                                                                                         ;
 end
 
 to form-pairs
-  ; casual pairs formation:
-  ; each of the females seeking for a casual sex ecounter
-  ; retrieves a random male from those seeking for a casual sex ecounter (if any)
-  ; the sexual states of the two are changed to "Casual"
-  ; if a link already exists between them (e.g. acquintances or past partners) the status is changed
-  ; otherwise a new link is formed
-  ask turtles with [ shape = female-shape and sexual-status = "Seeking Casual" ] [
-    let female self
-    let male-set turtles with [ shape = male-shape and sexual-status = "Seeking Casual" ]
-    if count male-set > 0 [
-      set sexual-status "Casual"
-      ask one-of male-set [
-        set sexual-status "Casual"
-        if-else link-neighbor? female [
-          ask link-with female [ set past currently-traced-color set current casual-color ]
-        ] [
-          create-link-with female [ set potential "none" set past currently-traced-color set current casual-color ]
-        ]
-      ]
-    ]
-  ]
-
-  ; stable pairs formation:
-  ask turtles with [ shape = female-shape and sexual-status = "Seeking Stable" ] [
-    let acq-list [ self ] of my-links with [ potential != "none" ]
-    let male-set filter [ l -> [ sexual-status ] of [ both-ends ] of l = [ "Seeking Stable" "Seeking Stable" ] ] acq-list
-    if length male-set > 0 [
-      set sexual-status "Stable"
-      ask one-of male-set [
-        ask both-ends [ set sexual-status "Stable" ]
-        set past currently-traced-color
-        set current stable-color
-      ]
-    ]
-  ]
+  ask turtles with [ status = "Seek Casual" ] [                                             ; casual pairs formation:
+    if status = "Seek Casual" [                                                             ; first, we check that turtles are still seeking (they may have been chosen by another one)
+      let turtle-shape shape                                                                ;
+      let partners other turtles with [                                                     ; for casual relationships, we do not look around the turtle's (potential) neighborhood
+        shape != turtle-shape and                                                           ; so we retrieve every other turtle with different sex looking for casual sex
+        status = "Seek Casual"                                                              ;
+      ]                                                                                     ;
+      if count partners > 0 [                                                               ; if there is at least one
+        let partner one-of partners                                                         ; we retrieve one from the set randomly
+        if not link-neighbor? partner [ create-link-with partner [ set potential "none" ] ] ; if a link is not present between the two turtles, we create it
+        ask link-with partner [                                                             ; then we get the link and:
+          set past currently-traced-color                                                   ; - set "past" to currently-traced so that contact tracing can be active for that
+          set current casual-color                                                          ; - set "current" to casual
+          ask both-ends [ set status "Casual" ]                                             ; - set the sexual status of both the individuals to casual
+        ]                                                                                   ;
+      ]                                                                                     ;
+    ]                                                                                       ;
+  ]                                                                                         ;
+  ask turtles with [ status = "Seek Stable" ] [                                             ; stable pairs formation:
+    if status = "Seek Stable" [                                                             ; first, we check that turtles are still seeking (they may have been chosen by another one)
+      let turtle-shape shape                                                                ;
+      let relationships my-links with [                                                     ; for stable relationships, we look around the turtle's (potential) neighborhood
+        potential != "none" and                                                             ; so we retrieve every potential link with both individuals being in search for a stable relationship
+        [ status ] of both-ends = [ "Seek Stable" "Seek Stable" ]                           ;
+      ]                                                                                     ;
+      if count relationships > 0 [                                                          ; if there is at least one
+        ask one-of relationships [                                                          ; we retrive one from the set randomly and:
+          set potential "none"                                                              ; - set "potential" to none so that a stable relationship between the two won't happen again
+          set past currently-traced-color                                                   ; - set "past" to currently-traced so that contact tracing can be active for that
+          set current stable-color                                                          ; - set "current" to stable
+          ask both-ends [ set status "Stable" ]                                             ; - set the sexual status of both the individuals to stable
+        ]                                                                                   ;
+      ]                                                                                     ;
+    ]                                                                                       ;
+  ]                                                                                         ;
 end
+
+;; SPREADING-FUCTIONS
 @#$#@#$#@
 GRAPHICS-WINDOW
 251
@@ -253,28 +267,10 @@ population-size
 NIL
 HORIZONTAL
 
-PLOT
-828
-10
-1138
-192
-Different-Sex Acquaintancies Degree Distribution
-degree
-# of nodes
-0.0
-1.0
-0.0
-1.0
-true
-false
-"" ""
-PENS
-"pen-0" 1.0 1 -16777216 true "" "plot-pen-reset\nlet max-degree max [count my-links with [ potential != \"none\" ] ] of turtles\nlet min-degree min [count my-links with [ potential != \"none\" ] ] of turtles\nset-plot-x-range min-degree (max-degree + 1)\nhistogram [count my-links with [ potential != \"none\" ] ] of turtles"
-
 BUTTON
 7
 104
-116
+78
 137
 Setup
 setup
@@ -289,7 +285,7 @@ NIL
 1
 
 BUTTON
-125
+167
 104
 238
 137
@@ -313,7 +309,7 @@ CHOOSER
 partners-network
 partners-network
 "Potential" "Past" "Current"
-2
+0
 
 SWITCH
 7
@@ -336,76 +332,13 @@ layout
 "Circle" "Random" "Spring" "Stop"
 0
 
-PLOT
-1143
-200
-1492
-383
-Sexual Encounters Degree Distribution (log-log)
-log(degree)
-log(# of nodes)
-0.0
-0.0
-0.0
-0.0
-true
-false
-"" ""
-PENS
-"default" 1.0 2 -16777216 true "" "plot-pen-reset\nlet max-degree max [count my-links with [ past != \"none\" ] ] of turtles\nlet degree 1\nwhile [degree <= max-degree] [\n  let matches turtles with [count my-links with [ past != \"none\" ] = degree]\n  if any? matches [ plotxy log degree 10 log (count matches) 10 ]\n  set degree degree + 1\n]"
-
-SLIDER
-918
-402
-1149
-435
-average-relationship-length
-average-relationship-length
-1
-730
-180.0
-1
-1
-days
-HORIZONTAL
-
-SLIDER
-918
-444
-1149
-477
-average-waiting-time
-average-waiting-time
-30
-700
-120.0
-1
-1
-days
-HORIZONTAL
-
 SLIDER
 8
 395
 238
 428
-condom-use-probability
-condom-use-probability
-0
-1
-0.5
-0.01
-1
-NIL
-HORIZONTAL
-
-SLIDER
-919
-487
-1150
-520
-casual-sex-probability
-casual-sex-probability
+infection-spread-probability
+infection-spread-probability
 0
 1
 0.5
@@ -463,9 +396,9 @@ PLOT
 1142
 10
 1493
-191
+244
 Sexual Status
-days
+weeks
 %
 0.0
 10.0
@@ -475,17 +408,17 @@ true
 true
 "" ""
 PENS
-"single" 1.0 0 -16777216 true "" "plot count turtles with [ sexual-status = \"Single\" ] / population-size * 100"
-"s-casual" 1.0 0 -2674135 true "" "plot count turtles with [ sexual-status = \"Seeking Casual\" ] / population-size * 100"
-"s-stable" 1.0 0 -1184463 true "" "plot count turtles with [ sexual-status = \"Seeking Stable\" ] / population-size * 100"
-"casual" 1.0 0 -8630108 true "" "plot count turtles with [ sexual-status = \"Casual\" ] / population-size * 100"
-"stable" 1.0 0 -13840069 true "" "plot count turtles with [ sexual-status = \"Stable\" ] / population-size * 100"
+"single" 1.0 0 -16777216 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Single\" ] / population-size * 100\n]"
+"s-casual" 1.0 0 -8630108 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Casual\" ] / population-size * 100\n]"
+"s-stable" 1.0 0 -11221820 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Stable\" ] / population-size * 100\n]"
+"casual" 1.0 0 -955883 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Casual\" ] / population-size * 100\n]"
+"stable" 1.0 0 -13840069 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Stable\" ] / population-size * 100\n]"
 
 BUTTON
-829
-399
-908
-432
+85
+104
+160
+137
 Go Once
 go
 NIL
@@ -499,11 +432,11 @@ NIL
 0
 
 PLOT
-828
-200
-1138
-382
-Sexual Encounters Degree Distribution
+826
+10
+1136
+192
+Number Of Sexual Partners Degree Distribution
 NIL
 NIL
 0.0
@@ -521,15 +454,37 @@ SLIDER
 356
 238
 389
-average-sexual-encounters
-average-sexual-encounters
+core-group-percentage
+core-group-percentage
+0
 1
-365
-50.0
+0.1
+0.01
 1
-1
-/ year
+NIL
 HORIZONTAL
+
+MONITOR
+827
+199
+974
+244
+Non-Core Sexual Partners
+mean [ count my-links with [ past != \"none\" ] ] of turtles with [ not core? ]
+17
+1
+11
+
+MONITOR
+981
+199
+1135
+244
+Core Sexual Partners
+mean [ count my-links with [ past != \"none\" ] ] of turtles with [ core? ]
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
