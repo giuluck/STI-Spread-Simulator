@@ -1,16 +1,23 @@
 globals [
   ;; DISEASE VARIABLES
+  delay-rate
   screening-probability
   initial-infected-percentage
+  symptomatic-percentage
+  avg-incubation-time
+  avg-recovery-time
+
+  ;; SEXUAL VARIABLES
+  breakup-probability
+  single-probability
+  casual-probability
+  intercourse-probability
 
   ;; SIMULATION VARIABLES
   warmup-time
   simulation-time
-  breakup-probability
-  single-probability
-  casual-sex-probability
 
-  ;; MODEL VARIABLES
+  ;; POPULATION VARIABLES
   male-percentage
   average-semidegree
   rewiring-probability
@@ -21,8 +28,9 @@ globals [
   female-shape
   ; state visualization varibales
   susceptible-color
-  exposed-color
+  incubating-color
   infected-color
+  tracing-color
   recovered-color
   ; graph visualization variables
   potential-color
@@ -39,6 +47,7 @@ globals [
 turtles-own [
   core?     ; whether or not the individual is in the core group
   status    ; sexual status ("Single", "Seek Casual", "Seek Stable", "Casual" or "Stable")
+  time      ; useful to keep track of the infection times (e.g. incubation, recovery, ...)
   spring-x  ; useful for the spring layout
   spring-y  ; useful for the spring layout
 ]
@@ -50,45 +59,51 @@ links-own [
 ]
 
 to setup
-  clear-all                                                                                     ;
-  set-globals                                                                                   ; assign values to global variables
-  initialize-population                                                                         ; initialize turtles and link properties and remove same-sex links from potential partners network
-  create-potential-partners-network                                                             ; create small-world and scale-free potential partners networks (Klemm-Egquìlez model)
-  repeat warmup-time [ simulate ]                                                               ; warm-up the simulation to form couples (2-years)
-  ask n-of (initial-infected-percentage * population-size) turtles [ set color infected-color ] ; infect a certain percentage of turtles
-  display-network                                                                               ; show the selected network
-  reset-ticks                                                                                   ;
+  clear-all                                                                                       ;
+  set-globals                                                                                     ; assign values to global variables
+  initialize-population                                                                           ; initialize turtles and link properties
+  create-potential-partners-network                                                               ; create small-world potential partners networks
+  repeat warmup-time [ simulate ]                                                                 ; warm-up the simulation to form couples
+  ask n-of (initial-infected-percentage * population-size) turtles [ set color incubating-color ] ; infect a certain percentage of turtles
+  display-network                                                                                 ; show the selected network
+  reset-ticks                                                                                     ;
 end
 
 to go
-  if ticks < simulation-time [ simulate ]                                                       ; it simulates only a given number of days
-  display-network                                                                               ; but it always correctly displays the network
-  tick                                                                                          ;
+  if ticks < simulation-time [ simulate ]                                                         ; it simulates only a given number of days
+  display-network                                                                                 ; but it always correctly displays the network
+  tick                                                                                            ;
 end
 
 ;; SETUP FUNCTIONS
 to set-globals
-  set screening-probability 1 / (52 * average-screening-time)        ; probability for an indivudual to be tested spontaneously
+  set delay-rate 1 / average-notification-delay                      ; probability for an traced individual to get the notification
+  set screening-probability 1 / (365 * average-screening-time)       ; probability for an indivudual to be tested spontaneously
   set initial-infected-percentage 0.06                               ; initial infected population is 6%
-  set warmup-time 100                                                ; number of days used to form relationships (around two years)
-  set simulation-time 520                                            ; number of simulated days (around ten years)
-  set breakup-probability 1 / 60                                     ; probability for a couple to slipt up
-  set single-probability 1 / 30                                      ; probability for a single individual to be seeking a new relationship
-  set casual-sex-probability 0.25                                    ; probability of seeking casual sex
+  set symptomatic-percentage 3 / 10                                  ; probability for an infected person to develop symptoms (30%)
+  set avg-incubation-time 14                                         ; average incubation time (two weeks)
+  set avg-recovery-time 14                                           ; average recovery time (one week for screening + one week for antibiotics)
+  set breakup-probability 1 / 370                                    ; probability for a couple to slipt up (average relationships around 12 months)
+  set single-probability 1 / 230                                     ; probability for a single individual to be seeking a new relationship (average inter-relationship time is around 8 months)
+  set casual-probability 0.25                                        ; probability of seeking casual sex
+  set intercourse-probability 1 / 7                                  ; probability of having a sexual intercourse or to be seeking a casual relatinoship for core turtles (once per week)
+  set warmup-time 700                                                ; number of days used to form relationships (two years)
+  set simulation-time 3650                                           ; number of simulated days (ten years)
   set male-percentage 0.5                                            ; probability for a node to be male
   set average-semidegree 15                                          ; half of the average number of potentials links including both sexes
   set rewiring-probability 0.25                                      ; probability to have a friend outside the spatial neighborhood
   set male-shape "circle"                                            ; circle turtles  (male)
   set female-shape "square"                                          ; square turtles  (female)
-  set susceptible-color 9                                            ; white turtles   (susceptible)
-  set exposed-color 45                                               ; yellow turtles  (exposed)
+  set susceptible-color 9.9                                          ; white turtles   (susceptible)
+  set incubating-color 45                                            ; yellow turtles  (incubating)
   set infected-color 15                                              ; red turtles     (infected)
+  set tracing-color 105                                              ; blue turtles    (tracing)
   set recovered-color 55                                             ; green turtles   (recovered)
-  set potential-color 95                                             ; sky blue links  (potential partners)
-  set already-traced-color 5                                         ; grey links      (past partners met before last visit)
-  set currently-traced-color 135                                     ; pink links      (past partners met after last visit)
-  set casual-color 25                                                ; orange links    (current casual partners)
-  set stable-color 65                                                ; lime links      (current stable partners)
+  set potential-color 5                                              ; grey links      (potential partners)
+  set already-traced-color 85                                        ; cyan links      (past partners met before last visit)
+  set currently-traced-color 45                                      ; yellow links    (past partners met after last visit)
+  set casual-color 105                                               ; blue links      (current casual partners)
+  set stable-color 55                                                ; green links     (current stable partners)
   set spring-factor sqrt population-size                             ; used to regulate the spring forces
   set zero-degree-factor 5                                           ; used to display zero-degree nodes
 end
@@ -115,7 +130,7 @@ to create-potential-partners-network
     ]                                                                                        ;
   ]                                                                                          ;
   ask links [                                                                                ; then, some links are rewired according to the Watts-Strogatz model
-    if (random-float 1) < rewiring-probability [                                             ; namely each link can be rewired according to the rewiring-probability
+    if coin rewiring-probability [                                                           ; namely each link can be rewired according to the rewiring-probability
       let extremity end1                                                                     ; when a link is chosen for rewiring
       if [ count link-neighbors ] of extremity < (count turtles - 1) [                       ; if the chosen extremity is not already fully connected
         ask one-of turtles with [ (self != extremity) and (not link-neighbor? extremity) ] [ ; one of its extremities is connected to a new one
@@ -138,6 +153,9 @@ to simulate
   breakup-relationships                                                                                                                      ; breaking up the relationships
   update-status                                                                                                                              ; updating sexual statuses of the individuals
   form-pairs                                                                                                                                 ; forming new relationships
+  spread-infection                                                                                                                           ; spreading the infection among relationships
+  evolve-infection                                                                                                                           ; evolving the infections for certain statuses
+  check-screenings                                                                                                                           ; checking spontaneous and traced screenings
 end
 
 to display-network
@@ -166,7 +184,7 @@ end
 ; RELATIONSHIP FUNCTIONS
 to breakup-relationships
   ask links with [ current != "none" ] [                                                    ; for all the currently active relationships
-    if current = casual-color or random-float 1 < breakup-probability [                     ; if the relationship is causal or if it is stable but it breaks up
+    if current = casual-color or coin breakup-probability [                                 ; if the relationship is causal or if it is stable but it breaks up
       ask both-ends [ set status "Single" ]                                                 ; individuals are made single again
       set current "none"                                                                    ; and the relationship is removed
     ]                                                                                       ;
@@ -174,13 +192,14 @@ to breakup-relationships
 end
 
 to update-status
-  ask turtles with [ status = "Single" ] [                                                  ; for each single turtle
-    if random-float 1 < single-probability [                                                ; if it decides not to wait anymore
-      if-else core? or random-float 1 < casual-sex-probability [                            ; set status either to
-        set status "Seek Casual"                                                            ; "Seek Casual"
-      ] [                                                                                   ; or
-        set status "Seek Stable"                                                            ; "Seek Stable"
-      ]                                                                                     ; according to the given probability
+  ask turtles with [ status = "Single" and core? ] [                                        ; for each single, core turtle
+    if coin intercourse-probability [                                                       ; the turtle will be seeking a casual relationship according to intercourse-probability
+      set status "Seek Casual"                                                              ;
+    ]                                                                                       ;
+  ]                                                                                         ;
+  ask turtles with [ status = "Single" and not core? ] [                                    ; for each single, non-core turtle
+    if coin single-probability [                                                            ; the turtle will decide to stop being single according to single-probability
+      set status ifelse-value coin casual-probability [ "Seek Casual" ] [ "Seek Stable" ]   ; and to be seeking a casual or stable relationship according to casual-probability
     ]                                                                                       ;
   ]                                                                                         ;
 end
@@ -224,6 +243,68 @@ to form-pairs
 end
 
 ;; SPREADING-FUCTIONS
+to spread-infection
+  ask links with [ current != "none" and any? both-ends with [ is-contagious color ] ] [ ; for each active relationship involving at least one contagious individual
+    if current = casual-color or coin intercourse-probability [                          ; if the relationship is casual or if it is stable but the couple is having a sexual intercourse
+      ask both-ends with [ color = susceptible-color ] [                                 ; we get only the susceptibles (if any), so that other infected, traced or recovered people do not catch the infection
+        if coin infection-spread-probability [                                           ; and according to the spreading probability
+          set color incubating-color                                                     ; the individual starts incubating the infection
+          set time avg-incubation-time                                                   ; for a given time
+        ]                                                                                ;
+      ]                                                                                  ;
+    ]                                                                                    ;
+  ]                                                                                      ;
+end
+
+to evolve-infection
+  ask turtles with [ color = recovered-color ] [                                         ; for each recovered individual
+    if-else time < 0 [                                                                   ; if the recovery time has expired
+      set color susceptible-color                                                        ; the individual becomes susceptible again
+    ] [                                                                                  ; otherwise
+      set time time - 1                                                                  ; another tick passes
+    ]                                                                                    ;
+  ]                                                                                      ;
+  ask turtles with [ color = incubating-color ] [                                        ; for each incubating individual
+    if-else time < 0 [                                                                   ; if the incubation time has expired
+      if-else coin symptomatic-percentage [ screen self ] [ set color infected-color ]   ; the infection will become symptomatic (thus screened) with a given percentage, otherwise it will be asymptomatic
+    ] [                                                                                  ; otherwise
+      set time time - 1                                                                  ; another tick passes
+    ]                                                                                    ;
+  ]                                                                                      ;
+end
+
+to check-screenings
+  ask turtles with [ is-contagious color ] [                                             ; for each contagious individual
+    if coin screening-probability [ screen self ]                                        ; there is a certain probability for spontaeous screening
+  ]                                                                                      ; (the probability exists for non infective individuals as well, but nothing will change so they are not considered)
+  ask turtles with [ color = tracing-color ] [                                           ; for each individual who's trying to be traced
+    if coin delay-rate [ screen self ]                                                   ; there is a certain probability for them to get the screening
+  ]                                                                                      ; (this is used to take into accounts notification and visit delays)
+end
+
+to screen [ individual ]
+  ask individual [                                                                       ; when an individual is subjected to a screening
+    if is-contagious color [                                                             ; if it is contagious
+      set color recovered-color                                                          ; at first, it gets recovered (for simplification, we say that traced and recovered individuals will have protected sex)
+      set time avg-recovery-time                                                         ; and the recovery will last for a given number of ticks
+      ask my-links with [ past = currently-traced-color ] [                              ; then, for each past partner:
+        set past already-traced-color                                                    ; - the partner will not be traced during next screenings
+        if coin contact-tracing-effectiveness [                                          ; - and it will be notified according to the effectiveness of the contact tracing
+          ask both-ends with [ color != recovered-color ] [ set color tracing-color ]    ; - we set it to tracing if it is not already in the recovery state
+        ]                                                                                ;
+      ]                                                                                  ;
+    ]                                                                                    ;
+  ]                                                                                      ;
+end
+
+;; UTIL FUNCTIONS
+to-report coin [ p ]
+  report random-float 1 < p                              ; simulates a sample from a Bernoulli random variable with probability of success equals to p
+end
+
+to-report is-contagious [ c ]
+  report c != susceptible-color and c != recovered-color ; infective individuals are the incubating, infected and tracing one, as recovered individuals are supposed have protected or no intercourses
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 251
@@ -261,7 +342,7 @@ population-size
 population-size
 10
 1000
-100.0
+500.0
 10
 1
 NIL
@@ -309,7 +390,7 @@ CHOOSER
 partners-network
 partners-network
 "Potential" "Past" "Current"
-0
+2
 
 SWITCH
 7
@@ -341,7 +422,7 @@ infection-spread-probability
 infection-spread-probability
 0
 1
-0.5
+0.4
 0.01
 1
 NIL
@@ -356,20 +437,20 @@ contact-tracing-effectiveness
 contact-tracing-effectiveness
 0
 1
-0.8
+0.6
 0.01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-8
-479
-238
-512
+7
+517
+237
+550
 average-screening-time
 average-screening-time
-1
+1.0
 10
 5.0
 0.1
@@ -386,7 +467,7 @@ node-size
 node-size
 1
 20
-10.0
+11.0
 1
 1
 NIL
@@ -396,9 +477,9 @@ PLOT
 1142
 10
 1493
-244
+178
 Sexual Status
-weeks
+days
 %
 0.0
 10.0
@@ -408,11 +489,11 @@ true
 true
 "" ""
 PENS
-"single" 1.0 0 -16777216 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Single\" ] / population-size * 100\n]"
-"s-casual" 1.0 0 -8630108 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Casual\" ] / population-size * 100\n]"
-"s-stable" 1.0 0 -11221820 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Stable\" ] / population-size * 100\n]"
-"casual" 1.0 0 -955883 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Casual\" ] / population-size * 100\n]"
-"stable" 1.0 0 -13840069 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Stable\" ] / population-size * 100\n]"
+"single" 1.0 0 -16777216 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Single\" ] / count turtles * 100\n]"
+"s-casual" 1.0 0 -2064490 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Casual\" ] / count turtles * 100\n]"
+"s-stable" 1.0 0 -11221820 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Seek Stable\" ] / count turtles * 100\n]"
+"casual" 1.0 0 -13345367 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Casual\" ] / count turtles * 100\n]"
+"stable" 1.0 0 -10899396 true "" "if ticks < simulation-time [\n  plot count turtles with [ status = \"Stable\" ] / count turtles * 100\n]"
 
 BUTTON
 85
@@ -434,8 +515,8 @@ NIL
 PLOT
 826
 10
-1136
-192
+1137
+130
 Number Of Sexual Partners Degree Distribution
 NIL
 NIL
@@ -458,33 +539,86 @@ core-group-percentage
 core-group-percentage
 0
 1
-0.1
+0.2
 0.01
 1
 NIL
 HORIZONTAL
 
 MONITOR
-827
-199
-974
-244
+826
+134
+975
+179
 Non-Core Sexual Partners
 mean [ count my-links with [ past != \"none\" ] ] of turtles with [ not core? ]
-17
+2
 1
 11
 
 MONITOR
-981
-199
-1135
-244
+980
+134
+1137
+179
 Core Sexual Partners
 mean [ count my-links with [ past != \"none\" ] ] of turtles with [ core? ]
-17
+2
 1
 11
+
+PLOT
+827
+385
+1492
+580
+Overall Infection Spread
+days
+%
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"not contagious" 1.0 0 -16777216 true "" "if ticks < simulation-time [\n  let total count turtles\n  let val count turtles with [ not is-contagious color ]\n  plot val / total * 100\n]"
+"contagious" 1.0 0 -2674135 true "" "if ticks < simulation-time [\n  let total count turtles\n  let val count turtles with [ is-contagious color ]\n  plot val / total * 100\n]"
+
+SLIDER
+8
+477
+237
+510
+average-notification-delay
+average-notification-delay
+1
+120
+7.0
+1
+1
+days
+HORIZONTAL
+
+PLOT
+826
+184
+1491
+378
+Core Percentages
+days
+%
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"not contagious" 1.0 0 -16777216 true "" "if ticks < simulation-time [\n  let total count turtles with [ not is-contagious color ]\n  let core count turtles with [ not is-contagious color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
+"contagious" 1.0 0 -2674135 true "" "if ticks < simulation-time [\n  let total count turtles with [ is-contagious color ]\n  let core count turtles with [ is-contagious color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -589,6 +723,15 @@ false
 0
 Circle -7500403 true true 0 0 300
 Circle -16777216 true false 30 30 240
+
+circle-core
+false
+0
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+Circle -7500403 true true 60 60 180
+Circle -16777216 true false 90 90 120
+Circle -7500403 true true 120 120 60
 
 cow
 false
