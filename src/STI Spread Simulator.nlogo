@@ -5,9 +5,9 @@
 
 globals [
   ;; DISEASE VARIABLES
+  actual-recovery-time
   delay-rate
   screening-probability
-  actual-recovery-time
 
   ;; SEXUAL VARIABLES
   breakup-probability
@@ -30,7 +30,7 @@ globals [
   ; state visualization varibales
   susceptible-color
   incubating-color
-  infected-color
+  asymptomatic-color
   tracing-color
   recovered-color
   ; graph visualization variables
@@ -97,7 +97,7 @@ to set-globals
   set female-shape "square"                                                                  ; square turtles  (female)
   set susceptible-color 9.9                                                                  ; white turtles   (susceptible)
   set incubating-color 45                                                                    ; yellow turtles  (incubating)
-  set infected-color 15                                                                      ; red turtles     (infected)
+  set asymptomatic-color 15                                                                  ; red turtles     (asymptomatic)
   set tracing-color 105                                                                      ; blue turtles    (tracing)
   set recovered-color 55                                                                     ; green turtles   (recovered)
   set potential-color 5                                                                      ; grey links      (potential partners)
@@ -246,9 +246,9 @@ end
 
 ;; SPREADING-FUCTIONS
 to spread-infection
-  ask links with [ current != "none" and any? both-ends with [ is-contagious color ] ] [ ; for each active relationship involving at least one contagious individual
+  ask links with [ current != "none" and any? both-ends with [ is-infected color ] ] [   ; for each active relationship involving at least one infected individual
     if current = casual-color or coin intercourse-probability [                          ; if the relationship is casual or if it is stable but the couple is having a sexual intercourse
-      ask both-ends with [ color = susceptible-color ] [                                 ; we get only the susceptibles (if any), so that other infected, traced or recovered people do not catch the infection
+      ask both-ends with [ color = susceptible-color ] [                                 ; we get only the susceptibles (if any), so that other infected or recovered people do not catch the infection
         if coin infection-spread-probability [                                           ; and according to the spreading probability
           set color incubating-color                                                     ; the individual starts incubating the infection
           set time incubation-time                                                       ; for a given time
@@ -270,13 +270,13 @@ to evolve-infection
     if-else time > 0 [                                                                   ; if the incubation time has expired
       set time time - 1                                                                  ; another tick passes
     ] [                                                                                  ; otherwise
-      if-else coin symptomatic-percentage [ screen self ] [ set color infected-color ]   ; the infection will become symptomatic (thus screened) with a given percentage, otherwise it will be asymptomatic
+      if-else coin symptomatic-percentage [ screen self ] [ set color asymptomatic-color ] ; the infection will become symptomatic (thus screened) with a given percentage, otherwise it will be asymptomatic
     ]                                                                                    ;
   ]                                                                                      ;
 end
 
 to check-screenings
-  ask turtles with [ is-contagious color ] [                                             ; for each contagious individual
+  ask turtles with [ is-infected color ] [                                               ; for each infected individual
     if coin screening-probability [ screen self ]                                        ; there is a certain probability for spontaeous screening
   ]                                                                                      ; (the probability exists for non infective individuals as well, but nothing will change so they are not considered)
   ask turtles with [ color = tracing-color ] [                                           ; for each individual who's trying to be traced
@@ -286,7 +286,7 @@ end
 
 to screen [ individual ]
   ask individual [                                                                       ; when an individual is subjected to a screening
-    if is-contagious color [                                                             ; if it is contagious
+    if is-infected color [                                                               ; if it is infected
       set color recovered-color                                                          ; at first, it gets recovered (for simplification, we say that traced and recovered individuals will have protected sex)
       set time actual-recovery-time                                                      ; and the recovery will last for a given number of ticks
       ask my-links with [ past = traced-casual-color or past = traced-stable-color ] [   ; then, for each past partner that is being traced:
@@ -306,8 +306,8 @@ to-report coin [ p ]
   report random-float 1 < p                              ; simulates a sample from a Bernoulli random variable with probability of success equals to p
 end
 
-to-report is-contagious [ c ]
-  report c != susceptible-color and c != recovered-color ; infective individuals are the incubating, infected and tracing one, as recovered individuals are supposed have protected or no intercourses
+to-report is-infected [ c ]
+  report c != susceptible-color and c != recovered-color ; infective individuals are the incubating, asymptomatic and tracing one, as recovered individuals are supposed have protected or no intercourses
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -415,7 +415,7 @@ CHOOSER
 layout
 layout
 "Circle" "Random" "Spring" "Stop"
-0
+1
 
 SLIDER
 5
@@ -587,8 +587,8 @@ true
 true
 "" ""
 PENS
-"not contagious" 1.0 0 -16777216 true "" "if ticks < 365 * simulation-time [\n  let total count turtles\n  let val count turtles with [ not is-contagious color ]\n  plot val / total * 100\n]"
-"contagious" 1.0 0 -2674135 true "" "if ticks < 365 * simulation-time [\n  let total count turtles\n  let val count turtles with [ is-contagious color ]\n  plot val / total * 100\n]"
+"not infected" 1.0 0 -16777216 true "" "if ticks < 365 * simulation-time [\n  let total count turtles\n  let val count turtles with [ not is-infected color ]\n  plot val / total * 100\n]"
+"infected" 1.0 0 -2674135 true "" "if ticks < 365 * simulation-time [\n  let total count turtles\n  let val count turtles with [ is-infected color ]\n  plot val / total * 100\n]"
 
 SLIDER
 5
@@ -621,8 +621,8 @@ true
 true
 "" ""
 PENS
-"not contagious" 1.0 0 -16777216 true "" "if ticks < 365 * simulation-time [\n  let total count turtles with [ not is-contagious color ]\n  let core count turtles with [ not is-contagious color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
-"contagious" 1.0 0 -2674135 true "" "if ticks < 365 * simulation-time [\n  let total count turtles with [ is-contagious color ]\n  let core count turtles with [ is-contagious color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
+"not infected" 1.0 0 -16777216 true "" "if ticks < 365 * simulation-time [\n  let total count turtles with [ not is-infected color ]\n  let core count turtles with [ not is-infected color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
+"infected" 1.0 0 -2674135 true "" "if ticks < 365 * simulation-time [\n  let total count turtles with [ is-infected color ]\n  let core count turtles with [ is-infected color and core? ]\n  plot ifelse-value total > 0 [ core / total * 100 ] [ 0 ]\n]"
 
 SLIDER
 5
@@ -751,7 +751,7 @@ On the upper left area there are some controls for the population and infection 
 - POPULATION-SIZE: the number of youths involved in the simulation.
 - SIMULATION-TIME: the number of years to be simulated (after the first two years for warm-up)
 - INITIAL-INFECTED-PERCENTAGE: the percentage of infected individuals before the second round of warm-up
-- SYNPTOMATIC PERCENTAGE: the percentage of infected individuals that will show symptoms
+- SYNPTOMATIC PERCENTAGE: the percentage of incubating individuals that will show symptoms
 - INCUBATION-TIME: the time between the infection and the eventual appearance of symptoms
 - RECOVERY-TIME: the time between being testes/cured and becoming susceptible again (this parameter has a meaning only if the "SIRS" model is chosen, otherwise the recovery time will be set to zero days in case of "SIS" model or an infinite number of days in case of "SIR" model)
 
@@ -761,11 +761,11 @@ Once these parameters are set, the SETUP button creates the population and warms
 - PARTNERS-NETWORK: decides which of the three networks (potential, past or current) is visualised
 - LAYOUT: decides how to layout the network
 
-On the right area, some monitors and plots are displayed to understand the evolution of the model. On top, a plot shows the distribution of the number of past partners for the population; this should be a bimodal distribution due to the different behaviour of "core" and "non-core" members, which is also noticeable from the two monitors under the plot showing the average number of sexual partners for the two categories. Near that, there is a small plot indicating the percentage of individuals in a certain sexual status (single, seeking casual, seeking stable, casual, or stable) over the time. Below that, the two main plots are displayed: the upper one indicates how much of the percentage of contagious (incubating + infected + tracing) and non-contagious (susceptibles + recovered) individuals are part of the "core" group with respect to each category, while the lower one indicates the percentage of contagious and non-contagious individuals with respect to the whole population.
+On the right area, some monitors and plots are displayed to understand the evolution of the model. On top, a plot shows the distribution of the number of past partners for the population; this should be a bimodal distribution due to the different behaviour of "core" and "non-core" members, which is also noticeable from the two monitors under the plot showing the average number of sexual partners for the two categories. Near that, there is a small plot indicating the percentage of individuals in a certain sexual status (single, seeking casual, seeking stable, casual, or stable) over the time. Below that, the two main plots are displayed: the upper one indicates how much of the percentage of infected (incubating + asymptomatic + tracing) and non-infected (susceptibles + recovered) individuals are part of the "core" group with respect to each category, while the lower one indicates the percentage of infected and non-infected individuals with respect to the whole population.
 
 Finally, on the lower left area, there are the six control parameters used to study the effects of NPIs on the spread of the infection. They are:
 - CORE-GROUP-PERCENTAGE: the percentage of "core" individuals in the whole population
-- INFECTION-SPREAD-PROBABILITY: the probability that a contagious individual passes the infection to a susceptible one during a sexual intercourse (this may take into account the actual load of the infection as well as the usage and effectiveness of protection methods such as condoms or other barrier methods)
+- INFECTION-SPREAD-PROBABILITY: the probability that an infected individual passes the infection to a susceptible one during a sexual intercourse (this may take into account the actual load of the infection as well as the usage and effectiveness of protection methods such as condoms or other barrier methods)
 - CASUAL-TRACING-PROBABILITY: the probability that old casual partners are notified and undergo a screening
 - STABLE-TRACING-PROBABILITY: the probability that old stable partners are notified and undergo a screening
 - AVERAGE-NOTIFICATION-DELAY: the average delay between the moment an individual is tested positive for the STI and an old partner is notified (follows a geometrical distribution)
