@@ -1,4 +1,4 @@
-;; STD SPREAD SIMULATOR
+;; STI SPREAD SIMULATOR
 ;; Luca Giuliani
 ;; luca.giuliani10@studio.unibo.it
 ;; 0000933791
